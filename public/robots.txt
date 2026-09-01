@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /planning
+Disallow: /payroll
+Disallow: /vault
+Disallow: /emails
