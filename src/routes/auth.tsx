@@ -138,25 +138,29 @@ function AuthPage() {
           ) : (
             <form onSubmit={verifyCode} className="mt-6 space-y-3">
               <p className="text-sm text-muted-foreground">
-                Un code à 6 chiffres a été envoyé à <strong>{email}</strong>.
-                Pensez à vérifier vos spams.
+                Un code a été envoyé à <strong>{email}</strong>. Utilisez celui
+                du dernier e-mail reçu, et pensez à vérifier vos spams.
               </p>
               <input
                 ref={codeInputRef}
                 type="text"
                 inputMode="numeric"
                 autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                maxLength={6}
+                // La longueur du code est un réglage Supabase (MAILER_OTP_LENGTH),
+                // pas une constante : ici il fait 8 chiffres. On accepte donc une
+                // plage plutôt qu'une longueur figée, sinon le champ tronque le
+                // code et la vérification échoue systématiquement.
+                pattern="[0-9]{6,10}"
+                maxLength={10}
                 required
-                placeholder="000000"
+                placeholder="Code reçu par e-mail"
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                className={`${inputClass} text-center font-mono text-2xl tracking-[0.4em]`}
+                className={`${inputClass} text-center font-mono text-2xl tracking-[0.3em]`}
               />
               <button
                 type="submit"
-                disabled={loading || code.length !== 6}
+                disabled={loading || code.length < 6}
                 className={buttonClass}
                 style={buttonStyle}
               >
