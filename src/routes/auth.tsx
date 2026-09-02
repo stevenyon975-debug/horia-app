@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import horiaLogo from "@/assets/horia-logo.png.asset.json";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,35 +10,90 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+/**
+ * Connexion par code à 6 chiffres.
+ *
+ * On n'utilise volontairement PAS de lien magique cliquable : les scanners
+ * anti-spam (Gmail, antivirus de messagerie d'entreprise) visitent
+ * automatiquement les liens des e-mails reçus. Comme un lien magique est à
+ * usage unique, le scanner consomme le jeton avant l'utilisateur, qui se
+ * retrouve avec « Email link is invalid or has expired ». Un code saisi à la
+ * main n'est pas cliquable, donc immunisé.
+ */
 function AuthPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [resendIn, setResendIn] = useState(0);
+  const codeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (session) navigate({ to: "/planning", replace: true });
   }, [session, navigate]);
 
-  const handleMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Compte à rebours avant de pouvoir redemander un code
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  useEffect(() => {
+    if (step === "code") codeInputRef.current?.focus();
+  }, [step]);
+
+  const sendCode = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setLoading(true);
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: `${window.location.origin}/planning`,
-        },
+        email: email.trim(),
+        options: { shouldCreateUser: true },
       });
       if (error) throw error;
-      setSent(true);
+      setStep("code");
+      setCode("");
+      setResendIn(60);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
+      toast.error(err instanceof Error ? err.message : "Erreur lors de l'envoi");
     } finally {
       setLoading(false);
     }
   };
+
+  const verifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code.trim(),
+        type: "email",
+      });
+      if (error) throw error;
+      // La redirection est prise en charge par le useEffect sur `session`.
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Code invalide";
+      toast.error(
+        /invalid|expired/i.test(msg)
+          ? "Code invalide ou expiré. Demandez-en un nouveau."
+          : msg,
+      );
+      setCode("");
+      codeInputRef.current?.focus();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inputClass =
+    "w-full rounded-lg border border-border bg-background/50 px-3 py-2.5 text-sm outline-none focus:border-primary";
+  const buttonStyle = { background: "var(--gradient-primary)" };
+  const buttonClass =
+    "w-full rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60";
 
   return (
     <div
@@ -57,45 +112,77 @@ function AuthPage() {
         >
           <h1 className="font-display text-2xl font-bold">Connexion</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Accédez à votre espace HorIA
+            {step === "email"
+              ? "Accédez à votre espace HorIA"
+              : "Saisissez le code reçu par e-mail"}
           </p>
 
-          {sent ? (
-            <div className="mt-6 rounded-lg border border-border bg-background/50 p-4 text-sm">
-              <p className="font-medium text-foreground">Lien envoyé ✓</p>
-              <p className="mt-1 text-muted-foreground">
-                Vérifiez votre boîte mail <strong>{email}</strong> et cliquez sur le lien
-                pour vous connecter. (Vérifiez aussi vos spams.)
-              </p>
-              <button
-                type="button"
-                onClick={() => setSent(false)}
-                className="mt-3 text-xs text-primary-glow hover:underline"
-              >
-                Utiliser une autre adresse
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleMagicLink} className="mt-6 space-y-3">
+          {step === "email" ? (
+            <form onSubmit={sendCode} className="mt-6 space-y-3">
               <input
                 type="email"
                 required
+                autoComplete="email"
                 placeholder="Votre adresse email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-border bg-background/50 px-3 py-2.5 text-sm outline-none focus:border-primary"
+                className={inputClass}
+              />
+              <button type="submit" disabled={loading} className={buttonClass} style={buttonStyle}>
+                {loading ? "Envoi…" : "Recevoir mon code"}
+              </button>
+              <p className="text-center text-xs text-muted-foreground">
+                Pas encore de compte ? Il sera créé automatiquement.
+              </p>
+            </form>
+          ) : (
+            <form onSubmit={verifyCode} className="mt-6 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Un code à 6 chiffres a été envoyé à <strong>{email}</strong>.
+                Pensez à vérifier vos spams.
+              </p>
+              <input
+                ref={codeInputRef}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+                placeholder="000000"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                className={`${inputClass} text-center font-mono text-2xl tracking-[0.4em]`}
               />
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full rounded-lg px-4 py-2.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-                style={{ background: "var(--gradient-primary)" }}
+                disabled={loading || code.length !== 6}
+                className={buttonClass}
+                style={buttonStyle}
               >
-                {loading ? "Envoi…" : "Recevoir mon lien de connexion"}
+                {loading ? "Vérification…" : "Se connecter"}
               </button>
-              <p className="text-center text-xs text-muted-foreground">
-                Pas encore de compte ? Le lien en créera un automatiquement.
-              </p>
+
+              <div className="flex items-center justify-between pt-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep("email");
+                    setCode("");
+                  }}
+                  className="text-muted-foreground hover:underline"
+                >
+                  Changer d'adresse
+                </button>
+                <button
+                  type="button"
+                  disabled={resendIn > 0 || loading}
+                  onClick={() => sendCode()}
+                  className="text-primary-glow hover:underline disabled:text-muted-foreground disabled:no-underline"
+                >
+                  {resendIn > 0 ? `Renvoyer un code (${resendIn}s)` : "Renvoyer un code"}
+                </button>
+              </div>
             </form>
           )}
         </div>
