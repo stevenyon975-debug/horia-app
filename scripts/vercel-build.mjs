@@ -92,9 +92,9 @@ writeFileSync(adapterPath, adapterSrc);
 const bundlePath = resolve(root, '.vercel-bundle-tmp.js');
 // esbuild is bundled inside vite — find it
 const possibleEsbuildPaths = [
+  'node_modules/esbuild/bin/esbuild',
   'node_modules/.bin/esbuild',
   'node_modules/vite/node_modules/esbuild/bin/esbuild',
-  'node_modules/esbuild/bin/esbuild',
 ];
 const { existsSync } = await import('fs');
 const esbuildBin = possibleEsbuildPaths
@@ -134,6 +134,14 @@ cpSync(resolve(root, 'dist/client'), staticDir, { recursive: true });
 // Serverless function entry
 const bundledCode = readFileSync(bundlePath, 'utf8');
 writeFileSync(resolve(funcDir, 'index.js'), bundledCode);
+
+// Mark the function bundle as CommonJS. The root package.json has
+// "type": "module", which would otherwise make Node treat this .js file as
+// ESM and crash with "module is not defined in ES module scope".
+writeFileSync(
+  resolve(funcDir, 'package.json'),
+  JSON.stringify({ type: 'commonjs' }, null, 2)
+);
 
 // Function runtime config (Node.js 18)
 writeFileSync(
