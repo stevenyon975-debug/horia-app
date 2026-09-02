@@ -108,7 +108,7 @@ execSync(
     `"${adapterPath}"`,
     '--bundle',
     '--platform=node',
-    '--target=node18',
+    '--target=node20',
     '--format=cjs',
     '--external:node:*',      // keep Node.js built-ins external (available at runtime)
     '--log-level=warning',
@@ -143,11 +143,11 @@ writeFileSync(
   JSON.stringify({ type: 'commonjs' }, null, 2)
 );
 
-// Function runtime config (Node.js 18)
+// Function runtime config (Node.js 22 — 18 and 20 are retired on Vercel)
 writeFileSync(
   resolve(funcDir, '.vc-config.json'),
   JSON.stringify({
-    runtime:  'nodejs18.x',
+    runtime:  'nodejs22.x',
     handler:  'index.js',
     launcherType: 'Nodejs',
     maxDuration: 30,
